@@ -1,0 +1,16 @@
+# Виртуальное окружение Python
+venv/
+.venv/
+__pycache__/
+*.pyc
+
+# Зависимости Frontend
+node_modules/
+dist/
+
+# Секреты и локальные конфиги
+.env
+*.log
+
+# База данных и Docker
+pgdata/

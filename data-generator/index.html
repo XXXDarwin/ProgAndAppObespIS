@@ -1,0 +1,446 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>WMS — Генератор данных</title>
+  <link rel="stylesheet" href="css/style.css" />
+  <script src="https://cdn.sheetjs.com/xlsx-0.20.1/package/dist/xlsx.full.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+</head>
+<body>
+  <header class="header">
+    <h1>📦 WMS — Генератор данных</h1>
+    <p>Товары, заказы, история спроса — или полный склад одной кнопкой</p>
+  </header>
+
+  <main class="container">
+    <div class="api-bar card">
+      <h3 class="section-title">Подключение к WMS</h3>
+      <div class="grid">
+        <div>
+          <label>URL API</label>
+          <input id="apiBase" type="text" value="http://localhost:8000" placeholder="http://localhost:8000" />
+          <p class="hint">Docker: <code>http://localhost:8000</code>. Перед повторной полной загрузкой лучше сбросить склад в WMS (Пользователи → сброс склада), иначе часть ячеек будет «пропущена».</p>
+        </div>
+        <div>
+          <label>Логин</label>
+          <input id="apiUser" type="text" value="admin" />
+        </div>
+        <div>
+          <label>Пароль</label>
+          <input id="apiPass" type="password" value="admin123" />
+        </div>
+      </div>
+    </div>
+
+    <div class="tabs">
+      <button type="button" class="tab active" data-tab="full">Полный склад</button>
+      <button type="button" class="tab" data-tab="products">Товары</button>
+      <button type="button" class="tab" data-tab="arrival">Приёмка</button>
+      <button type="button" class="tab" data-tab="consumption">Расход</button>
+      <button type="button" class="tab" data-tab="history">История спроса</button>
+    </div>
+
+    <div id="catalogBar" class="catalog-bar"></div>
+
+    <!-- Полный склад -->
+    <section id="panel-full" class="panel active">
+      <div class="card card-highlight">
+        <h2>Полный склад — одной кнопкой</h2>
+        <p class="hint">
+          Генерирует согласованный набор: товары, ячейки, приёмки и расходы по календарю
+          (сначала приёмки, затем расходы). Те же SKU и ячейки во всех частях — без противоречий.
+          Загрузка в WMS: <span class="font-mono">POST /api/warehouse/bootstrap</span>
+        </p>
+
+        <div class="grid">
+          <div>
+            <label>Товаров</label>
+            <input id="fullProdCount" type="number" min="5" max="2000" value="80" />
+          </div>
+          <div>
+            <label>Префикс SKU</label>
+            <input id="fullSkuPrefix" type="text" value="GEN" />
+          </div>
+          <div>
+            <label>Зоны (через запятую)</label>
+            <input id="fullZones" type="text" value="A,B,C" />
+          </div>
+          <div>
+            <label>Стеллажей / зона</label>
+            <input id="fullRacks" type="number" min="1" max="20" value="5" />
+          </div>
+          <div>
+            <label>Полок / стеллаж</label>
+            <input id="fullShelves" type="number" min="1" max="10" value="4" />
+          </div>
+          <div>
+            <label>Позиций / полка</label>
+            <input id="fullPositions" type="number" min="1" max="10" value="4" />
+          </div>
+          <div>
+            <label>Остаток мин–макс (ед.)</label>
+            <div class="inline-range">
+              <input id="fullStockMin" type="number" min="1" value="30" />
+              <span>—</span>
+              <input id="fullStockMax" type="number" min="1" value="100" />
+            </div>
+          </div>
+          <div>
+            <label>Дней истории спроса</label>
+            <input id="fullHistDays" type="number" min="28" max="1095" value="365" />
+          </div>
+          <div>
+            <label>Пресет спроса</label>
+            <select id="fullHistPreset">
+              <option value="xgboost_wins">Выйграет Бустинг</option>
+              <option value="ml_benchmark_super">Бенчмарк прогнозов Супер</option>
+              <option value="ml_benchmark">Бенчмарк прогнозов</option>
+              <option value="irregular">Нерегулярный</option>
+              <option value="spiky">Редкие пики</option>
+              <option value="volatile">Колебания</option>
+              <option value="seasonal">Сезонность</option>
+              <option value="growth">Рост</option>
+              <option value="decline">Снижение</option>
+              <option value="stable">Стабильный</option>
+            </select>
+          </div>
+          <div class="span-2">
+            <label class="check">
+              <input id="fullHistCustom" type="checkbox" />
+              Свои параметры спроса (как на вкладке «История спроса»)
+            </label>
+          </div>
+          <div>
+            <label>История по SKU</label>
+            <select id="fullHistSkuMode">
+              <option value="all">Все товары</option>
+              <option value="sample">Выборка</option>
+            </select>
+          </div>
+          <div>
+            <label>Размер выборки (если выборка)</label>
+            <input id="fullHistSample" type="number" min="5" max="500" value="50" />
+          </div>
+        </div>
+
+        <h3 class="section-title">Ритм заказов</h3>
+        <p class="hint">В каждом месяце — приёмки, перемещения между зонами, расходы и инвентаризация. Перемещения выравнивают остатки по зонам склада.</p>
+        <div class="grid">
+          <div>
+            <label>Приёмок в месяц (средн.)</label>
+            <input id="fullArrPerMonth" type="number" min="1" max="60" value="8" />
+          </div>
+          <div>
+            <label>Расходов в месяц (средн.)</label>
+            <input id="fullConPerMonth" type="number" min="1" max="60" value="12" />
+          </div>
+          <div>
+            <label>Перемещений в месяц (средн.)</label>
+            <input id="fullMovesPerMonth" type="number" min="0" max="40" value="6" />
+          </div>
+          <div>
+            <label>Позиций в приёмке (макс.)</label>
+            <input id="fullArrItemsMax" type="number" min="2" max="50" value="18" />
+          </div>
+          <div>
+            <label>Позиций в расходе (макс.)</label>
+            <input id="fullConItemsMax" type="number" min="1" max="50" value="10" />
+          </div>
+        </div>
+
+        <label class="check">
+          <input id="fullSkipDup" type="checkbox" checked />
+          Пропускать существующие SKU при загрузке
+        </label>
+        <label class="check">
+          <input id="fullTrainMl" type="checkbox" />
+          После загрузки запустить обучение ML
+        </label>
+
+        <div class="actions">
+          <button type="button" id="btnGenFull" class="btn btn-primary">Сгенерировать полный склад</button>
+          <button type="button" id="btnUploadFull" class="btn btn-secondary" disabled>Загрузить в WMS</button>
+          <button type="button" id="btnFullJson" class="btn btn-secondary" disabled>Скачать bootstrap.json</button>
+        </div>
+
+        <div id="fullProgressWrap" class="progress-wrap hidden" aria-live="polite">
+          <div class="progress-header">
+            <span id="fullProgressText">Подготовка…</span>
+            <span id="fullProgressPct">0%</span>
+          </div>
+          <div class="progress-track"><div id="fullProgressBar" class="progress-fill"></div></div>
+        </div>
+
+        <div id="fullStats" class="stats-box"></div>
+        <div id="fullLog" class="log-box"></div>
+        <div id="fullPreview" class="preview"></div>
+      </div>
+    </section>
+
+    <!-- Товары -->
+    <section id="panel-products" class="panel">
+      <div class="card">
+        <h2>Список товаров</h2>
+        <p class="hint">Формат совместим с импортом в WMS → Товары → Загрузить из файла</p>
+        <div class="grid">
+          <div>
+            <label>Количество</label>
+            <input id="prodCount" type="number" min="1" max="500" value="20" />
+          </div>
+          <div>
+            <label>Префикс SKU</label>
+            <input id="prodPrefix" type="text" value="GEN" />
+          </div>
+          <div>
+            <label>Стартовый номер</label>
+            <input id="prodStart" type="number" min="1" value="1" />
+          </div>
+          <div>
+            <label>Режим</label>
+            <select id="prodMode">
+              <option value="random">Случайные названия</option>
+              <option value="demo">Демо-каталог WMS (20 SKU)</option>
+            </select>
+          </div>
+        </div>
+        <label class="check">
+          <input id="prodSkipDup" type="checkbox" checked />
+          skip_duplicates в JSON (пропуск существующих SKU)
+        </label>
+        <div class="actions">
+          <button type="button" id="btnGenProducts" class="btn btn-primary">Сгенерировать</button>
+          <button type="button" id="btnUseDemoCatalog" class="btn btn-secondary">Демо-каталог в память</button>
+          <button type="button" id="btnProdJson" class="btn btn-secondary">Скачать JSON</button>
+          <button type="button" id="btnProdCsv" class="btn btn-secondary">Скачать CSV</button>
+          <button type="button" id="btnProdXlsx" class="btn btn-secondary">Скачать Excel</button>
+        </div>
+        <div id="prodPreview" class="preview"></div>
+      </div>
+    </section>
+
+    <!-- Приёмка -->
+    <section id="panel-arrival" class="panel">
+      <div class="card">
+        <h2>Заказ на приёмку</h2>
+        <p class="hint">Импорт: WMS → Заказы на приёмку. Колонки: sku, quantity, cell (опционально)</p>
+        <div class="grid">
+          <div>
+            <label>Позиций в заказе</label>
+            <input id="arrLines" type="number" min="1" max="100" value="8" />
+          </div>
+          <div>
+            <label>Кол-во мин</label>
+            <input id="arrQtyMin" type="number" min="1" value="5" />
+          </div>
+          <div>
+            <label>Кол-во макс</label>
+            <input id="arrQtyMax" type="number" min="1" value="50" />
+          </div>
+          <div>
+            <label>Комментарий</label>
+            <input id="arrComment" type="text" placeholder="Поставка №…" />
+          </div>
+        </div>
+        <label class="check"><input id="arrCells" type="checkbox" checked /> Добавить колонку cell (ячейка)</label>
+        <label class="check"><input id="arrRepeat" type="checkbox" /> Разрешить повтор SKU в заказе</label>
+        <div class="actions">
+          <button type="button" id="btnGenArr" class="btn btn-primary">Сгенерировать</button>
+          <button type="button" id="btnArrJson" class="btn btn-secondary">Скачать JSON</button>
+          <button type="button" id="btnArrCsv" class="btn btn-secondary">Скачать CSV</button>
+          <button type="button" id="btnArrXlsx" class="btn btn-secondary">Скачать Excel</button>
+        </div>
+        <div id="arrPreview" class="preview"></div>
+      </div>
+    </section>
+
+    <!-- Расход -->
+    <section id="panel-consumption" class="panel">
+      <div class="card">
+        <h2>Заказ на расход</h2>
+        <p class="hint">Импорт: WMS → Заказы на расход. Колонки: sku, quantity</p>
+        <div class="grid">
+          <div>
+            <label>Позиций в заказе</label>
+            <input id="conLines" type="number" min="1" max="100" value="6" />
+          </div>
+          <div>
+            <label>Кол-во мин</label>
+            <input id="conQtyMin" type="number" min="1" value="1" />
+          </div>
+          <div>
+            <label>Кол-во макс</label>
+            <input id="conQtyMax" type="number" min="1" value="15" />
+          </div>
+          <div>
+            <label>Комментарий</label>
+            <input id="conComment" type="text" placeholder="Отгрузка в …" />
+          </div>
+        </div>
+        <label class="check"><input id="conCells" type="checkbox" /> Добавить cell (обычно не нужно)</label>
+        <label class="check"><input id="conRepeat" type="checkbox" /> Разрешить повтор SKU</label>
+        <div class="actions">
+          <button type="button" id="btnGenCon" class="btn btn-primary">Сгенерировать</button>
+          <button type="button" id="btnConJson" class="btn btn-secondary">Скачать JSON</button>
+          <button type="button" id="btnConCsv" class="btn btn-secondary">Скачать CSV</button>
+          <button type="button" id="btnConXlsx" class="btn btn-secondary">Скачать Excel</button>
+        </div>
+        <div id="conPreview" class="preview"></div>
+      </div>
+    </section>
+
+    <!-- История спроса -->
+    <section id="panel-history" class="panel">
+      <div class="card">
+        <h2>История спроса (для прогноза ML)</h2>
+        <p class="hint">
+          Генерирует дневной расход по SKU. Импорт в WMS: <span class="font-mono">POST /api/predictions/history/import</span>
+          (нужны товары в каталоге). Минимум 28–90 дней для обучения.
+        </p>
+
+        <div class="grid">
+          <div>
+            <label>Пресет</label>
+            <select id="histPreset">
+              <option value="xgboost_wins">Выйграет Бустинг</option>
+              <option value="ml_benchmark_super">Бенчмарк прогнозов Супер</option>
+              <option value="ml_benchmark">Бенчмарк прогнозов</option>
+              <option value="irregular">Нерегулярный (для ML)</option>
+              <option value="spiky">Редкие пики</option>
+              <option value="volatile">Сильные колебания</option>
+              <option value="seasonal">Яркая сезонность</option>
+              <option value="growth">Рост спроса</option>
+              <option value="decline">Снижение спроса</option>
+              <option value="stable">Стабильный спрос</option>
+            </select>
+          </div>
+          <div class="span-2">
+            <p id="histPresetHint" class="hint preset-hint"></p>
+          </div>
+          <div>
+            <label>Дней истории</label>
+            <input id="histDays" type="number" min="28" max="1095" value="365" />
+          </div>
+          <div>
+            <label>Начало периода</label>
+            <input id="histStart" type="date" />
+          </div>
+          <div>
+            <label>SKU в генерации</label>
+            <input id="histSkuCount" type="number" min="1" max="50" value="5" />
+          </div>
+        </div>
+
+        <h3 class="section-title">Параметры ряда</h3>
+        <div class="grid">
+          <div>
+            <label>Средний спрос / день</label>
+            <input id="histMean" type="number" min="1" step="0.5" value="15" />
+          </div>
+          <div>
+            <label>Тренд (+/− в день)</label>
+            <input id="histTrend" type="number" step="0.01" value="0" />
+          </div>
+          <div>
+            <label>Шум, % от среднего</label>
+            <input id="histNoise" type="number" min="0" max="100" value="15" />
+          </div>
+          <div>
+            <label>Сезонность месяца (0–0.5)</label>
+            <input id="histMonthly" type="number" min="0" max="0.5" step="0.05" value="0.1" />
+          </div>
+          <div>
+            <label>Множитель выходных</label>
+            <input id="histWeekend" type="number" min="0.1" max="2" step="0.05" value="0.85" />
+          </div>
+          <div>
+            <label>Множитель праздников РФ</label>
+            <input id="histHoliday" type="number" min="0.1" max="3" step="0.05" value="0.7" />
+          </div>
+          <div>
+            <label>Вероятность «нулевого» дня</label>
+            <input id="histZero" type="number" min="0" max="0.5" step="0.01" value="0.05" />
+          </div>
+        </div>
+
+        <h3 class="section-title">Множители по дням недели (Пн → Вс)</h3>
+        <div class="weekday-grid" id="weekdayGrid"></div>
+
+        <details class="advanced-details" id="histAdvancedPanel">
+          <summary>Расширенные параметры (сложность для прогноза)</summary>
+          <p class="hint">
+            Всплески, автокорреляция шума и разброс между SKU делают ряд менее «идеальным» — метрики MAE/RMSE
+            лучше отражают различия между XGBoost и статистическими моделями.
+          </p>
+          <div class="grid">
+            <div>
+              <label>Вероятность всплеска (0–0.3)</label>
+              <input id="histSpikeChance" type="number" min="0" max="0.3" step="0.01" value="0.05" />
+            </div>
+            <div>
+              <label>Множитель всплеска</label>
+              <input id="histSpikeMult" type="number" min="1.2" max="6" step="0.1" value="2.5" />
+            </div>
+            <div>
+              <label>Вероятность провала</label>
+              <input id="histDropChance" type="number" min="0" max="0.3" step="0.01" value="0.04" />
+            </div>
+            <div>
+              <label>Множитель провала</label>
+              <input id="histDropMult" type="number" min="0.05" max="0.9" step="0.05" value="0.4" />
+            </div>
+            <div>
+              <label>Вероятность выброса</label>
+              <input id="histOutlierChance" type="number" min="0" max="0.1" step="0.005" value="0.02" />
+            </div>
+            <div>
+              <label>Множитель выброса</label>
+              <input id="histOutlierMult" type="number" min="2" max="8" step="0.1" value="4" />
+            </div>
+            <div>
+              <label>Автокорреляция шума (0–0.9)</label>
+              <input id="histAutocorr" type="number" min="0" max="0.9" step="0.05" value="0.45" />
+            </div>
+            <div>
+              <label>Смена тренда (вероят.)</label>
+              <input id="histTrendBreak" type="number" min="0" max="0.5" step="0.05" value="0.2" />
+            </div>
+            <div>
+              <label>Разброс SKU (мин)</label>
+              <input id="histSkuScaleMin" type="number" min="0.1" max="2" step="0.05" value="0.3" />
+            </div>
+            <div>
+              <label>Разброс SKU (макс)</label>
+              <input id="histSkuScaleMax" type="number" min="0.5" max="4" step="0.05" value="2" />
+            </div>
+          </div>
+          <label class="check">
+            <input id="histPerSkuTrendFlip" type="checkbox" checked />
+            У части SKU противоположный тренд
+          </label>
+        </details>
+
+        <div class="actions">
+          <button type="button" id="btnGenHistory" class="btn btn-primary">Сгенерировать историю</button>
+          <button type="button" id="btnHistJson" class="btn btn-secondary">JSON для WMS</button>
+          <button type="button" id="btnHistCsv" class="btn btn-secondary">CSV</button>
+          <button type="button" id="btnHistXlsx" class="btn btn-secondary">Excel</button>
+        </div>
+
+        <div class="chart-wrap">
+          <canvas id="historyChart"></canvas>
+        </div>
+        <p id="histStats" class="hint"></p>
+        <div id="histPreview" class="preview"></div>
+
+        <p class="hint">Загрузка в WMS: используйте блок «Подключение к WMS» вверху или вкладку «Полный склад».</p>
+        <button type="button" id="btnHistUpload" class="btn btn-secondary">Только история → WMS</button>
+        <p id="histUploadMsg" class="hint"></p>
+      </div>
+    </section>
+  </main>
+
+  <script type="module" src="js/app.js"></script>
+</body>
+</html>
