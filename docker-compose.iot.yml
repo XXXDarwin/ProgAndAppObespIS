@@ -1,0 +1,12 @@
+services:
+  db:
+    image: postgres:16
+    container_name: iot_db
+    environment:
+      POSTGRES_DB: iot
+      POSTGRES_USER: iot
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+    ports: ['5433:5432']
+    volumes: [iot_pgdata:/var/lib/postgresql/data]
+volumes:
+  iot_pgdata:
