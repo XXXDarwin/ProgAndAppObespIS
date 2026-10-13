@@ -1,0 +1,4 @@
+# iot_emulator/requirements.txt
+pyyaml
+pytest
+matplotlib
