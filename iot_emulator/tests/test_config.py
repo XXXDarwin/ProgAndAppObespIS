@@ -7,7 +7,7 @@ def test_config_loads():
     cfg = load_config()
     assert cfg['seed'] == 42
     assert cfg['climate']['fs_hz'] == 0.2
-    assert cfg['weight']['fs_hz'] == 1.0
+    assert cfg['weight']['fs_hz'] == 10.0
 
 
 def test_harmonics_below_nyquist():
