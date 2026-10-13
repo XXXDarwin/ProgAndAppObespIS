@@ -1,0 +1,11 @@
+seed: 42
+duration_s: 120
+zone: A
+shelves:
+  - {shelf_id: A1-1-1, unit_weight_g: 200, items: 10}
+events:
+  - {at: 20, climate_outlier: {delta_t: 8.5}}
+  - {at: 40, climate_fault: {mode: stuck}}
+  - {at: 60, climate_fault: {mode: none}}
+  - {at: 80, climate_fault: {mode: dropout}}
+  - {at: 100, climate_fault: {mode: none}}

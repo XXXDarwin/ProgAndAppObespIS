@@ -1,0 +1,9 @@
+seed: 42
+duration_s: 240
+tau_s: 15
+zone: A
+shelves:
+  - {shelf_id: A1-1-1, unit_weight_g: 200, items: 10}
+events:
+  - {at: 30, climate_target: {temperature: 28.0}}
+  - {at: 100, climate_target: {temperature: 40.0}}

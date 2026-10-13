@@ -1,0 +1,8 @@
+seed: 42
+duration_s: 90
+zone: A
+shelves:
+  - {shelf_id: A1-1-1, unit_weight_g: 200, items: 10}
+events:
+  - {at: 20, shelf_remove: {shelf_id: A1-1-1, items: 2}}
+  - {at: 50, shelf_add: {shelf_id: A1-1-1, items: 1}}
