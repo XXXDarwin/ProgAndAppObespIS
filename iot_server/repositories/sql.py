@@ -4,6 +4,7 @@ from datetime import datetime, timezone
 from sqlalchemy import select
 
 import config
+from crypto import audit, cipher
 from db import models as m
 from domain.models import Alert, Shelf, ZoneLimits
 from repositories.base import Repository
@@ -61,12 +62,12 @@ class SqlRepository(Repository):
     def reset_state(cls):
         cls._status.clear()
 
-    # --- точки подключения криптографии (этап 7 заменит их на cipher.py) ---
+    # --- криптография: AES-256-GCM, ключ вне БД ---
     def _seal(self, plain, purpose, aad):
-        return plain
+        return cipher.encrypt(plain, purpose, aad)
 
     def _open(self, blob, purpose, aad):
-        return blob
+        return cipher.decrypt(blob, purpose, aad)
 
     # --- зоны и статусы ---
     def get_zone(self, zone):
@@ -124,6 +125,7 @@ class SqlRepository(Repository):
         self.db.add(m.Measurement(sensor_id=sensor.id, kind=kind, source=src,
                                   ts=ts, payload=blob))
         self.db.flush()  # нарушение UNIQUE проявится здесь
+        audit.append(self.db, f'measurement:{kind}:{src}')
 
     def list_measurements(self, limit):
         rows = self.db.scalars(select(m.Measurement)
@@ -148,6 +150,7 @@ class SqlRepository(Repository):
                       details=blob, created=created)
         self.db.add(row)
         self.db.flush()
+        audit.append(self.db, f'alert:{type_}:{source}')
         return Alert(id=row.id, type=type_, severity=severity, source=source,
                      details=details, created=created)
 
