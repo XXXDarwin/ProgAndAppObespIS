@@ -1,31 +1,80 @@
 # iot_server/api/routes.py
+import os
+from contextlib import contextmanager
 from dataclasses import asdict
 from typing import Optional
 
 from fastapi import APIRouter, HTTPException, Query
+from sqlalchemy.exc import IntegrityError
 
 from repositories.memory import MemoryRepository
+from repositories.sql import SqlRepository, UnknownSensor
 from schemas.telemetry import ClimatePacket, ShelfPacket
 from services import climate, shelf
 from services.errors import DuplicatePacket, UnknownShelf, UnknownZone
 
 router = APIRouter()
-repo = MemoryRepository(seed=True)  # в ЛР №4 заменяется на SqlRepository
+repo = MemoryRepository(seed=True)  # режим по умолчанию (память, ЛР №2)
+_session_factory = None             # не None: режим SQL (ЛР №4)
+
+
+def use_sql(factory=None):
+    global _session_factory
+    if factory is None:
+        from db.session import make_session_factory
+        factory = make_session_factory()
+    _session_factory = factory
+
+
+def use_memory():
+    global _session_factory
+    _session_factory = None
+
+
+if os.environ.get('IOT_STORAGE') == 'sql':
+    use_sql()
+
+
+@contextmanager
+def unit_of_work():
+    '''Одна транзакция на запрос: commit при успехе, rollback при сбое.'''
+    if _session_factory is None:
+        yield repo
+        return
+    session = _session_factory()
+    try:
+        yield SqlRepository(session)
+        session.commit()
+    except IntegrityError:  # сработал UNIQUE: дубликат пакета
+        session.rollback()
+        raise DuplicatePacket()
+    except (UnknownZone, UnknownShelf, DuplicatePacket):
+        session.commit()    # ожидаемые исходы: алерт UNKNOWN_SHELF сохраняется
+        raise
+    except Exception:
+        session.rollback()
+        raise
+    finally:
+        session.close()
 
 
 @router.post('/telemetry/climate')
 def post_climate(p: ClimatePacket):
     try:
-        return climate.process(p, repo)
-    except UnknownZone:
+        with unit_of_work() as r:
+            return climate.process(p, r)
+    except (UnknownZone, UnknownSensor):
         raise HTTPException(404, 'Unknown zone')
+    except DuplicatePacket:
+        raise HTTPException(409, 'Duplicate packet')
 
 
 @router.post('/telemetry/shelf')
 def post_shelf(p: ShelfPacket):
     try:
-        return shelf.process(p, repo)
-    except UnknownShelf:
+        with unit_of_work() as r:
+            return shelf.process(p, r)
+    except (UnknownShelf, UnknownSensor):
         raise HTTPException(404, 'Unknown shelf')
     except DuplicatePacket:
         raise HTTPException(409, 'Duplicate packet')
@@ -33,23 +82,27 @@ def post_shelf(p: ShelfPacket):
 
 @router.get('/telemetry')
 def get_telemetry(limit: int = Query(50, ge=1, le=1000)):
-    return repo.list_measurements(limit)
+    with unit_of_work() as r:
+        return r.list_measurements(limit)
 
 
 @router.get('/climate/status')
 def get_climate_status():
-    return repo.list_statuses()
+    with unit_of_work() as r:
+        return r.list_statuses()
 
 
 @router.get('/inventory')
 def get_inventory():
-    return [asdict(s) for s in repo.list_shelves()]
+    with unit_of_work() as r:
+        return [asdict(s) for s in r.list_shelves()]
 
 
 @router.get('/alerts')
 def get_alerts(severity: Optional[str] = None,
                limit: int = Query(100, ge=1, le=1000)):
-    return [asdict(a) for a in repo.list_alerts(severity, limit)]
+    with unit_of_work() as r:
+        return [asdict(a) for a in r.list_alerts(severity, limit)]
 
 
 @router.get('/health')
