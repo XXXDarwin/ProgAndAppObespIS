@@ -1,6 +1,9 @@
+import os
+
 import config
 from sqlalchemy import select
 
+from crypto import cipher, signing
 from db import models as m
 from db.session import make_session_factory
 
@@ -11,13 +14,21 @@ def _one(db, model, **where):
     return db.scalar(select(model).filter_by(**where))
 
 
+def _provision_secret(dev):
+    '''Секрет хаба хранится в БД только в зашифрованном виде (ключ вне БД).'''
+    raw = os.environ.get('IOT_HUB_SECRET')
+    if raw:
+        dev.secret_enc = cipher.encrypt(bytes.fromhex(raw), 'devices',
+                                        signing.secret_aad(dev.device_id))
+
+
 def seed_database(db):
     dev = _one(db, m.Device, device_id=HUB_ID)
     if dev is None:
-        # secret_enc: заглушка, на этапе 7 заменяется зашифрованным ключом хаба
         dev = m.Device(device_id=HUB_ID, secret_enc=b'', firmware_version='emu-1.0')
         db.add(dev)
         db.flush()
+    _provision_secret(dev)
     for zone in config.SEED_ZONES:
         if _one(db, m.Sensor, kind='climate', code=zone) is None:
             db.add(m.Sensor(device_id=dev.id, kind='climate', code=zone))

@@ -4,9 +4,10 @@ from contextlib import contextmanager
 from dataclasses import asdict
 from typing import Optional
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy.exc import IntegrityError
 
+from api import auth
 from repositories.memory import MemoryRepository
 from repositories.sql import SqlRepository, UnknownSensor
 from schemas.telemetry import ClimatePacket, ShelfPacket
@@ -16,6 +17,7 @@ from services.errors import DuplicatePacket, UnknownShelf, UnknownZone
 router = APIRouter()
 repo = MemoryRepository(seed=True)  # режим по умолчанию (память, ЛР №2)
 _session_factory = None             # не None: режим SQL (ЛР №4)
+_auth_enabled = False               # True: пакеты должны быть подписаны (ЛР №4)
 
 
 def use_sql(factory=None):
@@ -31,8 +33,24 @@ def use_memory():
     _session_factory = None
 
 
+def use_auth(enabled=True):
+    global _auth_enabled
+    _auth_enabled = enabled
+
+
 if os.environ.get('IOT_STORAGE') == 'sql':
     use_sql()
+if os.environ.get('IOT_REQUIRE_SIGNATURE') == '1':
+    use_auth(True)
+
+
+async def require_auth(request: Request):
+    '''Проверка подписи пакета хаба (только POST /telemetry/*).'''
+    if not _auth_enabled:
+        return
+    if _session_factory is None:
+        raise HTTPException(500, 'Проверка подписи требует режима SQL')
+    auth.check(_session_factory, request.headers, await request.body())
 
 
 @contextmanager
@@ -58,7 +76,7 @@ def unit_of_work():
         session.close()
 
 
-@router.post('/telemetry/climate')
+@router.post('/telemetry/climate', dependencies=[Depends(require_auth)])
 def post_climate(p: ClimatePacket):
     try:
         with unit_of_work() as r:
@@ -69,7 +87,7 @@ def post_climate(p: ClimatePacket):
         raise HTTPException(409, 'Duplicate packet')
 
 
-@router.post('/telemetry/shelf')
+@router.post('/telemetry/shelf', dependencies=[Depends(require_auth)])
 def post_shelf(p: ShelfPacket):
     try:
         with unit_of_work() as r:
