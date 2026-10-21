@@ -20,7 +20,7 @@
       </div>
 
       <!-- Legend -->
-      <div class="flex flex-wrap gap-4 text-xs font-medium">
+      <div v-if="!iotZoneCode" class="flex flex-wrap gap-4 text-xs font-medium">
         <div class="flex items-center gap-1.5"><div class="w-4 h-4 rounded bg-gray-100 border border-gray-200"></div> Свободна</div>
         <div class="flex items-center gap-1.5"><div class="w-4 h-4 rounded bg-blue-200 border border-blue-300"></div> Заполнена &lt;50%</div>
         <div class="flex items-center gap-1.5"><div class="w-4 h-4 rounded bg-blue-400 border border-blue-500"></div> Заполнена 50–80%</div>
@@ -35,6 +35,9 @@
           <div class="text-sm text-gray-400">Загрузка карты склада...</div>
         </div>
       </div>
+
+      <!-- Защищённая зона: отдельный IoT-интерфейс -->
+      <IotZoneView v-else-if="iotZoneCode" :iot-zone="iotZoneCode" />
 
       <!-- Map grids: all racks in zone -->
       <div v-else-if="zoneCells.length" class="space-y-4">
@@ -103,7 +106,7 @@
       </div>
 
       <!-- Stats bar -->
-      <div v-if="!loading && zoneCells.length" class="grid grid-cols-4 gap-3">
+      <div v-if="!loading && !iotZoneCode && zoneCells.length" class="grid grid-cols-4 gap-3">
         <div class="card text-center py-3">
           <div class="text-lg font-bold text-gray-700">{{ zoneCells.length }}</div>
           <div class="text-xs text-gray-400">Всего ячеек</div>
@@ -190,12 +193,17 @@
 import { ref, computed, watch, onMounted } from 'vue'
 import ManagerLayout from '@/layouts/ManagerLayout.vue'
 import { cellsApi, warehouseApi } from '@/api'
+import IotZoneView from '@/modules/iot/IotZoneView.vue'
 
 const loading      = ref(true)
 const allCells     = ref([])
 const allStocks    = ref([])
 const selectedZone = ref('')
 const selectedCell = ref(null)
+
+// Защищённые зоны WMS → код зоны в IoT-сервере. Новая IoT-зона добавляется одной строкой.
+const IOT_ZONES = { C: 'A' }
+const iotZoneCode = computed(() => IOT_ZONES[selectedZone.value] ?? null)
 
 // ── Derived dimensions ────────────────────────────────────────────────────────
 const zones = computed(() => [...new Set(allCells.value.map(c => c.zone))].sort())
