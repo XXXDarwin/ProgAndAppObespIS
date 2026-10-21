@@ -19,6 +19,12 @@ export default defineConfig({
         target: process.env.VITE_DEV_PROXY_TARGET || 'http://127.0.0.1:8000',
         changeOrigin: true,
       },
+      // IoT-сервер ЛР №2–4 (порт 8001, т.к. 8000 занят бэкендом WMS)
+      '/iot-api': {
+        target: 'http://localhost:8001',
+        changeOrigin: true,
+        rewrite: p => p.replace(/^\/iot-api/, ''),
+      },
     },
   },
 })
